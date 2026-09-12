@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 concurrency:
   group: build-dev-${{ github.ref }}
@@ -83,36 +82,6 @@ jobs:
           fi
           echo "PREV_ALPHA_TAG=$PREV_ALPHA_TAG" >> "$GITHUB_ENV"
           echo "Commit list anchored at: ${PREV_ALPHA_TAG:-<none>}"
-
-      - name: Ensure PR to master exists with release title
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          HEAD_BRANCH: ${{ github.ref_name }}
-          BASE_BRANCH: master
-        shell: bash
-        run: |
-          set -euo pipefail
-          : "${BASE_PROJECT_VERSION?Missing BASE_PROJECT_VERSION}"
-          TITLE="Release (${BASE_PROJECT_VERSION})"
-
-          if [[ "$HEAD_BRANCH" == "$BASE_BRANCH" ]]; then
-            echo "On $BASE_BRANCH; nothing to do."; exit 0
-          fi
-
-          PR_NUMBER=$(gh pr list \
-            --state open \
-            --base "$BASE_BRANCH" \
-            --head "$HEAD_BRANCH" \
-            --json number \
-            --jq '.[0].number' || true)
-
-          if [[ -z "${PR_NUMBER}" || "${PR_NUMBER}" == "null" ]]; then
-            BODY="This pull request was automatically created by the dev build to keep master up to date with development."
-            gh pr create --base "$BASE_BRANCH" --head "$HEAD_BRANCH" --title "$TITLE" --body "$BODY"
-          else
-            gh pr edit "$PR_NUMBER" --title "$TITLE" || echo "Warning: failed to update PR title"
-          fi
 
       - name: Build MyPet
         env:
