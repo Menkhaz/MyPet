@@ -99,8 +99,11 @@ val archivesBaseName = "MyPet"
 
 val downloadTranslations by tasks.register<Exec>("downloadTranslations") {
     group = "resources"
-    description = "Downloads MyPet translations into plugin module resources"
-    val targetDir = project(":plugin").layout.buildDirectory.dir("resources/main/locale").get().asFile
+    description = "Downloads MyPet translations (consumed by :plugin:processResources)"
+    // Kept OUTSIDE build/ so `clean` doesn't force a re-clone; the 12-hour freshness
+    // check below is the only thing that triggers a download. :plugin:processResources
+    // copies this directory into the jar's locale/ folder.
+    val targetDir = layout.projectDirectory.dir(".gradle/translations").asFile
     outputs.dir(targetDir)
 
     // Skip download if translations are less than 12 hours old
@@ -120,19 +123,15 @@ val downloadTranslations by tasks.register<Exec>("downloadTranslations") {
 
     doFirst {
         if (targetDir.exists()) targetDir.deleteRecursively()
-        targetDir.mkdirs()
+        targetDir.parentFile.mkdirs()
     }
     commandLine(
         "git", "clone", "--depth", "1", "--single-branch",
         "https://github.com/MyPetORG/MyPet-Translations.git", targetDir
     )
     doLast {
-        // Clean up files we don't need in the final JAR
-        // Use direct File operations for configuration cache compatibility
+        // Drop the repo metadata so the directory is just the locale files.
         File(targetDir, ".git").deleteRecursively()
-        File(targetDir, ".gitignore").delete()
-        File(targetDir, "README.md").delete()
-        File(targetDir, "exclude").deleteRecursively()
     }
 }
 
@@ -154,12 +153,10 @@ fun Manifest.attributesForMyPet() = attributes(
     )
 )
 
-tasks.jar {
-    archiveBaseName.set(archivesBaseName)
-    archiveFileName.set("${archivesBaseName}-${version}.jar")
-    archiveVersion.set(project.version.toString())
-    manifest { attributesForMyPet() }
-}
+// The root project has no sources, so its plain `jar` would only produce an empty archive —
+// and it used to write it to the SAME path as shadowJar (build/libs/MyPet-<version>.jar).
+// Two tasks sharing one output path made shadowJar uncacheable and never UP-TO-DATE.
+tasks.jar { enabled = false }
 
 /* ---------- Shading without JVM attribute conflicts ---------- */
 

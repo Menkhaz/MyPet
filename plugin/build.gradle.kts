@@ -14,7 +14,13 @@ tasks.withType<JavaCompile>().configureEach {
 tasks.processResources {
     enabled = true
     duplicatesStrategy = DuplicatesStrategy.WARN
-    dependsOn(rootProject.tasks.named("downloadTranslations"))
+    // Translations live in <root>/.gradle/translations (see the root downloadTranslations
+    // task); copy them into locale/ here rather than having that task write straight
+    // into this task's output directory (overlapping outputs defeat caching).
+    from(rootProject.tasks.named("downloadTranslations")) {
+        into("locale")
+        exclude(".github/**", ".gitignore", "README.md", "exclude/**")
+    }
 
     // plugin.yml is the only *.yml here, and ${mypetVersion} is the only token it uses.
     // Capture the value at configuration time — the filesMatching action runs at
