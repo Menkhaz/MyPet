@@ -78,6 +78,15 @@ public final class MenuDispatcher implements Listener {
                                               current.typedHandler(),
                                               current.context(),
                                               current.snapshot()));
+            // Persist BEFORE onClose, as every other close path does. Navigating away used to
+            // be the one path that skipped this: the outgoing menu's storage edits were
+            // dropped, while BackpackMenuHandler.onClose cleared its menuOpen flag as though
+            // they had been saved. The stale array then re-persisted its pre-open contents on
+            // the next close, so items moved out of a backpack existed in both places.
+            //
+            // mutating.add(id) below suppresses the Bukkit close event that would otherwise
+            // have persisted for us, which is why nothing downstream covered this.
+            extractStorageAndPersist(current);
             mutating.add(id);
             try {
                 current.typedHandler().onClose(current, CloseReason.NAVIGATED_AWAY);
