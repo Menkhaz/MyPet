@@ -56,6 +56,7 @@ import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.util.BoundingBox;
 import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
@@ -76,6 +77,18 @@ public final class VanillaMobSpawner {
      * source that never applies a model still gets adopted rather than waiting forever.
      */
     private static final int SOURCE_MODEL_WAIT_MAX_TICKS = 40;
+
+    /**
+     * Widest box the space test will ask for, whatever the mob's own width. See
+     * {@link #spawnPocket}.
+     */
+    private static final double MAX_POCKET_WIDTH = 2.0;
+
+    /**
+     * Tallest box the space test will ask for, whatever the mob's own height. See
+     * {@link #spawnPocket}.
+     */
+    private static final double MAX_POCKET_HEIGHT = 4.0;
 
     /**
      * Spawns the pet as a Bukkit mob. Returns the outcome of the attempt so
@@ -708,8 +721,8 @@ public final class VanillaMobSpawner {
     }
 
     /**
-     * Whether the pet actually fits at {@code loc} — its full collision box, not just the
-     * block its feet are in.
+     * Whether the pet actually fits at {@code loc} — its collision box, not just the block
+     * its feet are in.
      * <p>
      * This is the check the pre-4.0 NMS branch did through
      * {@code PlatformHelper#canSpawn(Location, MyPetMinecraftEntity)}, which tested the
@@ -717,8 +730,8 @@ public final class VanillaMobSpawner {
      * replaced it with a one-block {@code isPassable()} test, and a one-block test cannot see
      * the pet's head: in a 1-high crawlspace the feet block is air, so the spawn was allowed,
      * the pet materialised with its head inside stone and vanilla suffocation damage started
-     * immediately. Paper's {@link Mob#collidesAt(Location)} restores the real test (blocks,
-     * hard-collision entities and the world border) without NMS.
+     * immediately. Paper's {@link Mob#wouldCollideUsing(BoundingBox)} restores the real test
+     * (blocks, hard-collision entities and the world border) without NMS.
      * <p>
      * Touching a surface is not colliding with it, so a pet still spawns on the carpet, snow
      * layer or slab its owner is standing on — the case
@@ -730,13 +743,42 @@ public final class VanillaMobSpawner {
     public static boolean hasRoomFor(Mob probe, Location loc) {
         if (probe != null) {
             try {
-                return !probe.collidesAt(loc);
+                return !probe.wouldCollideUsing(spawnPocket(probe, loc));
             } catch (Throwable t) {
                 // Detached entity without usable world context: fall through to the
                 // block test rather than refusing to spawn the pet at all.
             }
         }
         return canSpawnIn(loc.getBlock());
+    }
+
+    /**
+     * The volume a pet must have free at {@code loc} to be spawned there: its own collision
+     * box, capped at {@link #MAX_POCKET_WIDTH} x {@link #MAX_POCKET_HEIGHT}.
+     * <p>
+     * The cap is why this doesn't just hand {@code collidesAt} the mob's raw box. A vanilla
+     * bounding box is not a statement about the mob's body — EnderDragon's is 16x8x16,
+     * spanning wingspan and tail (its real hit detection lives in separate
+     * {@code EnderDragonPart} entities). Testing that verbatim demands a 16-wide, 8-tall
+     * clear volume, so a dragon pet is refused with "not enough space" anywhere terrain
+     * exists within 8 blocks of its owner — a tree, a wall, a hillside. The NMS check this
+     * restored never saw such a box: every pet entity declared its own
+     * {@code @EntitySize}, and the pet dragon's was {@code (1, 1)} (flying and aquatic pets,
+     * {@code (0.5, 0.3)}).
+     * <p>
+     * A cap of 2x4 leaves the honest boxes untouched — every pet that fits in a 2x4 pocket,
+     * which is all of them but the oversized fliers and the Giant, is still tested at its
+     * exact size, so the crawlspace suffocation the full-box test was added for is still
+     * caught. The oversized ones are tested for the pocket their body actually needs;
+     * {@code PetEnderDragon.HoverController} then flies the dragon on its own terrain check
+     * (a 1x4x1 column), which excludes wings and tail for the same reason.
+     */
+    private static BoundingBox spawnPocket(Mob probe, Location loc) {
+        double halfWidth = Math.min(probe.getWidth(), MAX_POCKET_WIDTH) / 2;
+        double height = Math.min(probe.getHeight(), MAX_POCKET_HEIGHT);
+        return new BoundingBox(
+                loc.getX() - halfWidth, loc.getY(), loc.getZ() - halfWidth,
+                loc.getX() + halfWidth, loc.getY() + height, loc.getZ() + halfWidth);
     }
 
     /**
