@@ -1410,6 +1410,18 @@ public abstract class PetImpl implements Pet, NBTStorage {
             return;
 
         BackpackImpl backpackSkill = getSkills().get(BackpackImpl.class);
+        // Skip the feed while the owner has the backpack open. For that window contents[] is
+        // stale -- edits live in the Bukkit menu inventory and only reach the array when the
+        // menu closes, at which point MenuDispatcher.extractStorageAndPersist overwrites the
+        // array wholesale from that inventory. Anything written here in the meantime is
+        // discarded, so the pet gained saturation while its food was silently refunded.
+        //
+        // AbstractGatheringSkill already pauses on this exact flag, and BackpackImpl's
+        // menuOpen field documents the requirement; trySelfFeeding was the caller that
+        // missed it. Skipping is safe: hunger ticks once a second and the pet simply feeds
+        // on the next tick after the menu closes.
+        if (backpackSkill.isMenuOpen())
+            return;
         ItemStack[] contents = backpackSkill.readContents(backpackSkill.currentCapacity());
         //Check backpack contents for food, then consume it
         List<ConfigItem> foodList = MyPetApi.getPetInfo().getFood(getPetType());
