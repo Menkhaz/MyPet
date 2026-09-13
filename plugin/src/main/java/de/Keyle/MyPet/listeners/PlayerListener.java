@@ -682,7 +682,25 @@ public class PlayerListener implements Listener {
             for (Pet pet : myPetPlayer.getPets()) {
                 if (pet.getStatus() == Pet.PetState.Here && MyPetGlobal.Skilltree.Skill.Backpack.DROP_WHEN_OWNER_DIES.get()) {
                     if (pet.getSkills().isActive(BackpackImpl.class)) {
-                        pet.getSkills().get(BackpackImpl.class).dropContents(pet.getLocation().get());
+                        BackpackImpl backpack = pet.getSkills().get(BackpackImpl.class);
+                        // Close the backpack menu before dropping, so its live contents are
+                        // persisted into contents[] first.
+                        //
+                        // dropContents() iterates contents[], which is stale while the owner has
+                        // the menu open -- edits live in the Bukkit inventory until a close
+                        // persists them. Dropping first spilled the stale copy on the ground, and
+                        // Paper then closed the dead player's screen anyway (InventoryCloseEvent
+                        // reason=DEATH), which persisted the still-live menu straight back into
+                        // contents[]. The items existed twice: on the ground and in the backpack.
+                        //
+                        // closeMenu() persists inline -- it routes to playerCloseImpl, which calls
+                        // extractStorageAndPersist before returning -- so contents[] is accurate by
+                        // the time dropContents() reads it. Guarded on isMenuOpen() so a player
+                        // dying with some other menu open is unaffected.
+                        if (backpack.isMenuOpen()) {
+                            MyPetApi.getGuiService().closeMenu(event.getEntity());
+                        }
+                        backpack.dropContents(pet.getLocation().get());
                     }
                 }
                 pet.removePet();
