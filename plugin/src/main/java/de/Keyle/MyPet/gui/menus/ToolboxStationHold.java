@@ -22,6 +22,7 @@ package de.Keyle.MyPet.gui.menus;
 
 import de.Keyle.MyPet.MyPetApi;
 import de.Keyle.MyPet.api.entity.Pet;
+import de.Keyle.MyPet.api.entity.PetEquipment;
 import de.Keyle.MyPet.api.skill.skills.Toolbox.Station;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Mob;
@@ -31,6 +32,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EntityEquipment;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
@@ -117,9 +119,27 @@ public final class ToolboxStationHold implements Listener {
 
     private static void applyEnd(Mob mob, ItemStack stashed) {
         EntityEquipment equipment = mob.getEquipment();
-        if (equipment != null) {
-            equipment.setItemInMainHand(stashed);
+        if (equipment == null) {
+            return;
         }
+        // Restore what the pet SHOULD be holding, not what we stashed.
+        //
+        // The stash is only valid while nothing else changes the pet's hand. If the owner
+        // equips a new item while the station is open, PetImpl.equipment is updated and the
+        // previous item is dropped at the pet's feet as displaced -- so writing the stashed
+        // copy back here recreated an item that had already been given to the world. The
+        // equipment map is the source of truth for what the pet owns; the borrowed hand is
+        // only a display.
+        //
+        // When nothing changed during the hold the map still holds the stashed item, so this
+        // behaves exactly as before. Pets that cannot carry equipment have no map entry to
+        // consult and keep the old restore.
+        Pet pet = MyPetApi.getPetManager().getPetFromEntity(mob);
+        if (pet instanceof PetEquipment equipmentPet) {
+            equipment.setItemInMainHand(equipmentPet.getEquipment(EquipmentSlot.HAND));
+            return;
+        }
+        equipment.setItemInMainHand(stashed);
     }
 
     @EventHandler
