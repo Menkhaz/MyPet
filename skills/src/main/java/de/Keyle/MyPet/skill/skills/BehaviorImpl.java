@@ -301,7 +301,7 @@ public class BehaviorImpl extends AbstractSkill implements Behavior {
             while (true) {
                 selectedBehavior = behaviorCycler.next();
                 if (selectedBehavior != Normal) {
-                    if (Permissions.has(pet.getOwner().getPlayer(), "MyPet.extended.behavior." + selectedBehavior.name().toLowerCase())) {
+                    if (Permissions.hasExtended(pet.getOwner().getPlayer(), "MyPet.extended.behavior." + selectedBehavior.name().toLowerCase())) {
                         break;
                     }
                 } else {
