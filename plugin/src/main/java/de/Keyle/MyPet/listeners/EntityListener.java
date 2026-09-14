@@ -454,6 +454,20 @@ public class EntityListener implements Listener {
             }
             if (retain) {
                 equipmentPet.setEquipment(slot, item);
+                // A pet holds one item per slot -- setEquipment stores a single-item copy,
+                // which is correct for the sneak-equip path that hands over one item from a
+                // stack. Importing a WILD mob's gear is different: a skeleton holding 64
+                // arrows kept one and the other 63 were destroyed, because nothing else ever
+                // referenced them again.
+                //
+                // Drop the remainder at the mob's feet, the same way the non-retain branch
+                // below already returns gear to the world. The pet keeps a stack of one and
+                // the player keeps the rest.
+                if (item.getAmount() > 1) {
+                    ItemStack remainder = item.clone();
+                    remainder.setAmount(item.getAmount() - 1);
+                    mob.getWorld().dropItem(mob.getLocation(), remainder);
+                }
             } else {
                 ItemStack dropped = item.clone();
                 mobEquipment.setItem(slot, null);
