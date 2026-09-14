@@ -44,13 +44,18 @@ import de.Keyle.MyPet.entity.visual.PetSitParticleController;
 import de.Keyle.MyPet.entity.ride.RideSkillFlightController;
 import de.Keyle.MyPet.util.Timer;
 import net.kyori.adventure.nbt.CompoundBinaryTag;
+import de.Keyle.MyPet.api.entity.PetEquipment;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Mob;
 import org.bukkit.event.Event;
+import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.ItemStack;
 
 import java.lang.reflect.Constructor;
 import java.util.Collection;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -248,6 +253,23 @@ public class PetManager extends de.Keyle.MyPet.api.repository.PetManager {
             }
         }
 
+        // Capture the source entity's per-slot drop chances before the detach below clears
+        // the reference. The equipment carry further down needs them: vanilla reads a drop
+        // chance above 1.0 as "always drop" and honours it when a mob converts, so a piece
+        // the new species cannot wear may ALREADY be lying on the ground by the time we look
+        // at it. Dropping it a second time would duplicate it.
+        Map<EquipmentSlot, Float> oldDropChances = new EnumMap<>(EquipmentSlot.class);
+        Mob oldEntityRef = oldPet.getBukkitEntity();
+        if (oldEntityRef != null && oldEntityRef.getEquipment() != null) {
+            for (EquipmentSlot slot : EquipmentSlot.values()) {
+                try {
+                    oldDropChances.put(slot, oldEntityRef.getEquipment().getDropChance(slot));
+                } catch (IllegalArgumentException | UnsupportedOperationException ignored) {
+                    // Slot carries no drop chance on this API version (BODY / SADDLE).
+                }
+            }
+        }
+
         // Detach the OLD pet's tickers and entity reference. Vanilla will
         // discard the source entity right after the EntityTransformEvent
         // handler returns; without this detach, oldPet.removePet (if it
@@ -295,6 +317,49 @@ public class PetManager extends de.Keyle.MyPet.api.repository.PetManager {
         // max inside setHealth.
         newPet.setHealth(oldPet.getHealth());
         newPet.setSaturation(oldPet.getSaturation());
+
+        // Carry the equipment map across the type change.
+        //
+        // Everything else persistent is copied above, but equipment was not, and that is a
+        // silent item sink: the old Pet is discarded with its map, so anything MyPet was
+        // tracking simply ceased to exist. It went unnoticed because the conversions that
+        // existed before (piglin zombification, lightning) keep the same equipment slots on
+        // both sides, so vanilla's own copy onto the new entity covered for it.
+        //
+        // Must run AFTER the status flip above: setEquipment only writes through to the live
+        // entity while status == Here, same reason the health copy is ordered here. Runs
+        // before updatePet below so the persisted row carries the gear.
+        //
+        // Slots the new species cannot use have no home. Vanilla does not copy them onto the
+        // new entity either (a cured villager has no HEAD slot for a helmet), so they are
+        // dropped at the pet's feet rather than destroyed -- UNLESS vanilla already dropped
+        // them itself, which it does for a drop chance above 1.0 (see the check below).
+        // Only the homeless pieces drop --
+        // re-setting the ones the new entity already wears is idempotent, whereas dropping
+        // those too would leave a worn copy AND a ground copy, which is the original bug
+        // inverted.
+        if (oldPet instanceof PetEquipment oldEquipment && newPet instanceof PetEquipment newEquipment) {
+            for (EquipmentSlot slot : EquipmentSlot.values()) {
+                ItemStack item = oldEquipment.getEquipment(slot);
+                if (item == null || item.getType().isAir()) {
+                    continue;
+                }
+                if (newEquipment.canUseSlot(slot)) {
+                    newEquipment.setEquipment(slot, item);
+                } else {
+                    Float chance = oldDropChances.get(slot);
+                    if (chance != null && chance > 1.0f) {
+                        // Vanilla already put this on the ground during the conversion.
+                        // Measured: the two zombie-villager cure tests differ by exactly
+                        // `drop_chances:{head:2.0f}`, and only that one leaves a helmet on
+                        // the floor. Dropping ours as well is what turns the fix back into
+                        // the duplication it is meant to remove.
+                        continue;
+                    }
+                    newEntity.getWorld().dropItem(newEntity.getLocation(), item);
+                }
+            }
+        }
 
         // Persist the new type. Same UUID → repository-side UPDATE, not
         // INSERT — the database row's `type` column flips while everything

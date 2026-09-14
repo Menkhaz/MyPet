@@ -78,6 +78,9 @@ public final class PetListeners {
             PetLightningStrikeListener::new,
             PetZombificationListener::new,
             PetMetamorphosisListener::new,
+            // After the three listeners that claim a specific TransformReason — this one
+            // catches every conversion they don't (drowning, freezing, curing).
+            PetConversionListener::new,
             PetInfoOnLeashListener::new,
             PetSurvivalListener::new,
             PetXpAttributionListener::new,
