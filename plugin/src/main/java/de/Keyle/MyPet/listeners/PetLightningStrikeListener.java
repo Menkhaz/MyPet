@@ -28,6 +28,7 @@ import de.Keyle.MyPet.api.exceptions.PetTypeNotFoundException;
 import de.Keyle.MyPet.entity.spawn.PetEntityMarker;
 import com.destroystokyo.paper.event.entity.EntityZapEvent;
 import de.Keyle.MyPet.repository.PetManager;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.MushroomCow;
 import org.bukkit.event.EventHandler;
@@ -35,6 +36,10 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.CreeperPowerEvent;
 import org.bukkit.event.entity.EntityTransformEvent;
+
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Suppresses (or properly handles) vanilla lightning-bolt species conversions
@@ -91,6 +96,12 @@ public class PetLightningStrikeListener implements Listener {
         if (event.getTransformReason() != EntityTransformEvent.TransformReason.LIGHTNING) {
             return;
         }
+        if (wasZapHandled(event.getEntity().getUniqueId())) {
+            // onPetLightningZap already re-typed this pet onto the replacement
+            // entity. Stand aside so vanilla completes the swap and discards the
+            // source mob — cancelling here would strand it beside the new pet.
+            return;
+        }
         if (!PetEntityMarker.isMarked(event.getEntity())) {
             return;
         }
@@ -121,6 +132,14 @@ public class PetLightningStrikeListener implements Listener {
      * handler list, so the parent catches the zap without the deprecation. Mirrors the
      * transform path: cancel by default, or re-type the pet if the owner opted into
      * AllowLightningConversion.
+     *
+     * <p><b>Species differ in whether a transform follows.</b> A Villager left
+     * uncancelled here goes on to fire a second, plain {@link EntityTransformEvent}
+     * for the same strike (same tick); a Pig fires no such follow-up — its zap
+     * <i>is</i> the whole conversion. So the zap handler owns the re-type for both,
+     * and {@link #markZapHandled} tells the transform handler to keep its hands off
+     * the follow-up. Cancelling the zap suppresses the follow-up entirely, which is
+     * why the opted-out path needs no equivalent bookkeeping.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPetLightningZap(EntityZapEvent event) {
@@ -132,9 +151,37 @@ public class PetLightningStrikeListener implements Listener {
                 && convertible.allowLightningConversion()
                 && event.getReplacementEntity() instanceof Mob replacement
                 && convertPet(pet, replacement)) {
+            markZapHandled(event.getEntity().getUniqueId());
             return;
         }
         event.setCancelled(true);
+    }
+
+    /**
+     * Source-entity ids whose lightning conversion was already completed by
+     * {@link #onPetLightningZap} on the tick recorded in {@link #zapHandledTick}.
+     *
+     * <p>By the time the follow-up transform arrives, the Pet has already been
+     * re-bound to the replacement entity, so the transform handler can no longer
+     * recognise the source mob as a convertible pet and would fall through to its
+     * default "protect the pet" cancellation — aborting vanilla's swap and leaving
+     * two mobs for one pet. The stamp makes the set self-clearing: entries are only
+     * ever read on the tick they were written.
+     */
+    private final Set<UUID> zapHandled = new HashSet<>();
+    private int zapHandledTick = -1;
+
+    private void markZapHandled(UUID sourceEntityId) {
+        int tick = Bukkit.getCurrentTick();
+        if (tick != zapHandledTick) {
+            zapHandled.clear();
+            zapHandledTick = tick;
+        }
+        zapHandled.add(sourceEntityId);
+    }
+
+    private boolean wasZapHandled(UUID sourceEntityId) {
+        return Bukkit.getCurrentTick() == zapHandledTick && zapHandled.contains(sourceEntityId);
     }
 
     /**
