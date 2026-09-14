@@ -23,6 +23,7 @@ package de.Keyle.MyPet.commands;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import de.Keyle.MyPet.MyPetApi;
+import de.Keyle.MyPet.util.PetReleaseEquipment;
 import de.Keyle.MyPet.util.translation.PetDefaultNameResolver;
 import de.Keyle.MyPet.MyPetPlugin;
 import de.Keyle.MyPet.api.Util;
@@ -48,6 +49,7 @@ import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.entity.Player;
 import java.util.logging.Level;
 
@@ -188,6 +190,12 @@ public class CommandRelease {
             // position, which would drop items at the owner's feet.
             Location dropLoc = pet.getLocation().get();
 
+            // Same reason as dropLoc above: this has to be read while the pet still has its
+            // entity. Gear MyPet tracks but the entity is not wearing (a Villager's hand
+            // reads empty however it was equipped) is in neither the release snapshot nor
+            // the discarded pet, so without this it is destroyed.
+            List<ItemStack> uncarriedEquipment = PetReleaseEquipment.captureUncarried(pet);
+
             boolean entityConverted = false;
             if (!MyPetApi.getPetInfo().getRemoveAfterRelease(pet.getPetType())) {
                 SpawnOutcome outcome;
@@ -217,6 +225,10 @@ public class CommandRelease {
 
             if (pet instanceof PetEquipment && !entityConverted) {
                 ((PetEquipment) pet).dropEquipment();
+            } else if (entityConverted) {
+                // The wild mob carries away whatever it was wearing; only the slots it never
+                // held need rescuing. Dropping the rest would duplicate the gear.
+                PetReleaseEquipment.dropUncarried(uncarriedEquipment, dropLoc);
             }
 
             PetRemoveEvent removeEvent = new PetRemoveEvent(pet, PetRemoveEvent.Source.RELEASE);

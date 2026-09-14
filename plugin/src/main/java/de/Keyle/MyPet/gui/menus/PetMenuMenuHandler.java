@@ -69,12 +69,14 @@ import de.Keyle.MyPet.api.skill.ToggleableSkill;
 import de.Keyle.MyPet.api.skill.skilltree.Skill;
 import org.bukkit.Material;
 import de.Keyle.MyPet.util.NameFilter;
+import de.Keyle.MyPet.util.PetReleaseEquipment;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.entity.Player;
 
 import java.util.regex.Matcher;
@@ -569,6 +571,11 @@ public final class PetMenuMenuHandler implements MenuHandler<PetMenuContext> {
 
         Location dropLoc = pet.getLocation().get();
 
+        // Read while the pet still has its entity — see PetReleaseEquipment. Gear MyPet
+        // tracks but the entity is not wearing survives neither the release snapshot nor the
+        // discarded pet.
+        List<ItemStack> uncarriedEquipment = PetReleaseEquipment.captureUncarried(pet);
+
         boolean entityConverted = false;
         if (!MyPetApi.getPetInfo().getRemoveAfterRelease(pet.getPetType())) {
             SpawnOutcome outcome;
@@ -598,6 +605,9 @@ public final class PetMenuMenuHandler implements MenuHandler<PetMenuContext> {
 
         if (pet instanceof PetEquipment && !entityConverted) {
             ((PetEquipment) pet).dropEquipment();
+        } else if (entityConverted) {
+            // Only the slots the wild mob never held — the rest leaves with it.
+            PetReleaseEquipment.dropUncarried(uncarriedEquipment, dropLoc);
         }
 
         PetRemoveEvent removeEvent = new PetRemoveEvent(pet, PetRemoveEvent.Source.RELEASE);
