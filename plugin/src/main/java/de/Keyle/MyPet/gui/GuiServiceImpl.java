@@ -29,6 +29,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
 import java.io.InputStream;
+import java.util.Map;
 import java.util.OptionalInt;
 import java.util.function.Supplier;
 
@@ -75,6 +76,11 @@ public final class GuiServiceImpl implements GuiService {
     }
 
     public record ReloadResult(int loaded, int overridesApplied, int rejected) {}
+
+    /** Bundled (jar) JSON of every registered menu, keyed by menu id — the web editor's menu defaults. */
+    public Map<String, String> bundledMenuJson() {
+        return registry.bundledJsonById();
+    }
 
     // --- GuiService -----------------------------------------------------------
 

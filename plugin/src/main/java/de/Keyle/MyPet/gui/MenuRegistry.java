@@ -31,8 +31,10 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 
@@ -105,6 +107,24 @@ public final class MenuRegistry {
         @SuppressWarnings("unchecked")
         Registration<C> reg = (Registration<C>) registrations.get(menuId);
         return reg == null ? null : reg.handler();
+    }
+
+    /**
+     * The bundled (jar) JSON of every registered menu as raw text, keyed by menu id.
+     * A menu whose bundled stream is missing or unreadable is left out.
+     */
+    public Map<String, String> bundledJsonById() {
+        Map<String, String> out = new TreeMap<>();
+        for (var entry : registrations.entrySet()) {
+            try (InputStream in = entry.getValue().bundledJson().get()) {
+                if (in != null) {
+                    out.put(entry.getKey(), new String(in.readAllBytes(), StandardCharsets.UTF_8));
+                }
+            } catch (IOException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to read bundled JSON for menu '" + entry.getKey() + "'", e);
+            }
+        }
+        return out;
     }
 
     public int loadedCount() { return loaded; }

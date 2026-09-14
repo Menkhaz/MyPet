@@ -23,6 +23,7 @@ package de.Keyle.MyPet.webeditor;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import de.Keyle.MyPet.MyPetApi;
+import de.Keyle.MyPet.gui.GuiServiceImpl;
 import de.Keyle.MyPet.util.MyPetReloader;
 
 import java.io.File;
@@ -94,6 +95,18 @@ public final class ConfigApplier {
             JsonObject files = changedConfigs.getAsJsonObject("locale").getAsJsonObject("files");
             for (Map.Entry<String, JsonElement> entry : files.entrySet()) {
                 File target = safeChildFile(dir, entry.getKey(), ".properties");
+                if (target != null) {
+                    write(target, entry.getValue().getAsString());
+                }
+            }
+        }
+
+        if (changedConfigs.has("gui")) {
+            // Full-file menu overrides; a removed section arrives as "<id>": null inside them.
+            File dir = ensureDir("gui/menus");
+            JsonObject files = changedConfigs.getAsJsonObject("gui").getAsJsonObject("files");
+            for (Map.Entry<String, JsonElement> entry : files.entrySet()) {
+                File target = safeChildFile(dir, entry.getKey(), ".json");
                 if (target != null) {
                     write(target, entry.getValue().getAsString());
                 }
@@ -174,14 +187,15 @@ public final class ConfigApplier {
 
     /**
      * The reload work a payload key requires. Declaration order IS the execution
-     * order (config → skilltrees → shops, matching {@code /mypet reload all}):
-     * reloadSkilltrees re-resolves trees against state reloadConfig may have just
-     * rebuilt. EnumSet iterates in declaration order, so do not reorder.
+     * order (config → skilltrees → shops, matching {@code /mypet reload all}, then
+     * menus): reloadSkilltrees re-resolves trees against state reloadConfig may have
+     * just rebuilt. EnumSet iterates in declaration order, so do not reorder.
      */
     private enum ReloadAction {
         CONFIG(MyPetReloader::reloadConfig),
         SKILLTREES(MyPetReloader::reloadSkilltrees),
-        SHOPS(MyPetReloader::reloadShops);
+        SHOPS(MyPetReloader::reloadShops),
+        MENUS(ConfigApplier::reloadMenus);
 
         private final Runnable action;
 
@@ -208,8 +222,16 @@ public final class ConfigApplier {
             "hooks-config", ReloadAction.CONFIG,
             "locale", ReloadAction.CONFIG,
             "skilltrees", ReloadAction.SKILLTREES,
-            "pet-shops", ReloadAction.SHOPS
+            "pet-shops", ReloadAction.SHOPS,
+            "gui", ReloadAction.MENUS
     );
+
+    /** Menus load only on enable (not via /mypet reload), so an applied override needs its own reload. */
+    private static void reloadMenus() {
+        if (MyPetApi.getGuiService() instanceof GuiServiceImpl gui) {
+            gui.reload();
+        }
+    }
 
     /**
      * Hot-reload only the subsystems the changed files affect. Call on the main thread.

@@ -31,6 +31,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -85,7 +86,15 @@ public final class MenuLoader {
     }
 
     private static Map<String, Section> parseSections(String menuId, int rows, JsonObject obj) {
-        Set<String> sectionIds = obj.keySet();
+        // A JSON null section is the removal sentinel. An override can't delete a bundled
+        // section by omitting it (deepMerge re-injects every bundled key), so the web editor
+        // writes "<id>": null instead. Drop those before any codec sees the section ids.
+        Set<String> sectionIds = new LinkedHashSet<>();
+        for (String sid : obj.keySet()) {
+            if (!obj.get(sid).isJsonNull()) {
+                sectionIds.add(sid);
+            }
+        }
         Map<String, Section> result = new LinkedHashMap<>();
 
         for (String sid : sectionIds) {

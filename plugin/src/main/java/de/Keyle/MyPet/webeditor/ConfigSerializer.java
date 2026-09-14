@@ -29,6 +29,7 @@ import de.Keyle.MyPet.api.skill.UpgradeSchema;
 import de.Keyle.MyPet.api.util.hooks.types.PetModelHook;
 import de.Keyle.MyPet.api.util.hooks.types.PetModelSourceHook;
 import de.Keyle.MyPet.api.util.locale.Locale;
+import de.Keyle.MyPet.gui.GuiServiceImpl;
 
 import java.io.File;
 import java.io.FileFilter;
@@ -51,6 +52,9 @@ import java.util.Map;
  *   <li>{@code locale/*.properties} → {@code {format:"properties-bundle",
  *       files:{name:"<raw>"}}} (only on-disk overrides; JAR defaults come from
  *       Crowdin on the web side)</li>
+ *   <li>{@code gui} → {@code {defaults:{files:{"<id>.json":"<raw>"}},
+ *       overrides:{files:{...}}}} (bundled menu JSON from the JAR, plus the
+ *       admin's {@code gui/menus/*.json} overrides)</li>
  * </ul>
  *
  * <p>The session layer wraps this {@code configs} object with
@@ -78,6 +82,7 @@ public final class ConfigSerializer {
         configs.add("hooks-config", yamlEntry("hooks-config.yml"));
         configs.add("skilltrees", skilltreeBundle());
         configs.add("locale", localeBundle());
+        configs.add("gui", guiBundle());
         JsonObject renderers = new JsonObject();
         for (PetModelHook hook : MyPetApi.getServiceManager().getServices(PetModelHook.class)) {
             JsonArray ids = new JsonArray();
@@ -192,6 +197,41 @@ public final class ConfigSerializer {
         }
         bundle.add("files", files);
         return bundle;
+    }
+
+    /**
+     * Build the {@code gui} section: every registered menu's bundled JSON as
+     * {@code defaults} and the admin's {@code gui/menus/*.json} files as
+     * {@code overrides}, each as {@code files:{"<id>.json":"<raw>"}}. The editor
+     * only lists menus that have a default, so without this section the Menus
+     * editor opens empty.
+     */
+    private JsonObject guiBundle() {
+        JsonObject defaultFiles = new JsonObject();
+        if (MyPetApi.getGuiService() instanceof GuiServiceImpl gui) {
+            gui.bundledMenuJson().forEach((id, json) -> defaultFiles.addProperty(id + ".json", json));
+        }
+        JsonObject overrideFiles = new JsonObject();
+        for (File file : listFiles("gui/menus", f -> f.getName().endsWith(".json"))) {
+            String content = readOrEmpty(file);
+            try {
+                JsonParser.parseString(content).getAsJsonObject();
+            } catch (RuntimeException e) {
+                // Unparseable overrides are already rejected by MenuRegistry; sending one would
+                // break the editor's bootstrap, so the menu opens from its default instead.
+                MyPetApi.getLogger().warning("WebEditor: skipping unparseable menu override " + file.getName());
+                continue;
+            }
+            overrideFiles.addProperty(file.getName(), content);
+        }
+        JsonObject defaults = new JsonObject();
+        defaults.add("files", defaultFiles);
+        JsonObject overrides = new JsonObject();
+        overrides.add("files", overrideFiles);
+        JsonObject gui = new JsonObject();
+        gui.add("defaults", defaults);
+        gui.add("overrides", overrides);
+        return gui;
     }
 
     private File[] listFiles(String subDir, FileFilter filter) {
