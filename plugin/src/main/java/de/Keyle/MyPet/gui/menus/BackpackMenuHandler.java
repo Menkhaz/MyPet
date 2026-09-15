@@ -76,6 +76,17 @@ public final class BackpackMenuHandler implements MenuHandler<BackpackContext> {
         if (bp != null) bp.writeContents(contents);
     }
 
+    /**
+     * The pet's live {@link BackpackImpl} — one object per pet, shared by everyone who
+     * can open it. {@code /petinventory <player>} lets an admin open a backpack whose
+     * owner may already have it open, and each window otherwise holds its own copy of
+     * {@code contents[]}.
+     */
+    @Override
+    public Object sharedStorageKey(BackpackContext context) {
+        return context.pet().getSkills().get(BackpackImpl.class);
+    }
+
     @Override
     public TagResolver titlePlaceholders(BackpackContext context) {
         return Placeholder.component("backpack_title", Component.translatable(

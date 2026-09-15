@@ -70,6 +70,10 @@ public final class MenuDispatcher implements Listener {
     public void open(MenuInstanceImpl newInst) {
         Player viewer = newInst.viewer();
         UUID id = viewer.getUniqueId();
+        // Before anything is rendered: hand sole ownership of the backing store to this
+        // viewer, so populateStorageContents below reads a store nobody else still holds
+        // an unsaved window onto.
+        evictOtherViewersOfSharedStorage(newInst);
         MenuInstanceImpl current = visibleByViewer.get(id);
 
         if (current != null) {
@@ -529,6 +533,51 @@ public final class MenuDispatcher implements Listener {
             if (pad != null) remaining += pad.getAmount();
         }
         return OptionalInt.of(remaining);
+    }
+
+    /**
+     * Persists and closes any OTHER viewer's menu that edits the same store as
+     * {@code newInst}, leaving the incoming viewer as its only window.
+     *
+     * <p>A storage section is copied into a per-viewer inventory on open and written back
+     * wholesale on close, so two live windows over one store always lose data: the last
+     * close overwrites the store with its own copy and resurrects whatever the other
+     * viewer removed. An admin running {@code /petinventory <owner>} against an owner who
+     * already had the backpack open duplicated its entire contents that way — the admin
+     * emptied their window and closed (store now empty), then the owner closed a window
+     * still showing six items and wrote them back. Both sets existed.
+     *
+     * <p>Evicting rather than refusing keeps the opener's view authoritative, mirrors what
+     * a single viewer's own second open already does ({@code NAVIGATED_AWAY}), and needs no
+     * way to report a refusal — {@code openMenu} returns void at all four call sites. The
+     * evicted viewer's edits are persisted first, so nothing they did is lost. The
+     * synthetic close runs under the {@link #mutating} guard keyed to the EVICTED viewer,
+     * without which the resulting {@link org.bukkit.event.inventory.InventoryCloseEvent}
+     * re-enters {@link #onClose} and persists a second time.
+     *
+     * <p>Menus that share no store return {@code null} from
+     * {@link MenuHandler#sharedStorageKey} and skip this entirely.
+     */
+    private void evictOtherViewersOfSharedStorage(MenuInstanceImpl newInst) {
+        Object key = newInst.<Object>typedHandler().sharedStorageKey(newInst.context());
+        if (key == null) return;
+        UUID opener = newInst.viewer().getUniqueId();
+        for (var entry : new HashMap<>(visibleByViewer).entrySet()) {
+            UUID otherId = entry.getKey();
+            if (otherId.equals(opener)) continue;
+            MenuInstanceImpl other = entry.getValue();
+            if (other.<Object>typedHandler().sharedStorageKey(other.context()) != key) continue;
+            mutating.add(otherId);
+            try {
+                extractStorageAndPersist(other);
+                other.typedHandler().onClose(other, CloseReason.PLUGIN_CLOSED);
+                stackByViewer.remove(otherId);
+                visibleByViewer.remove(otherId);
+                other.viewer().closeInventory();
+            } finally {
+                mutating.remove(otherId);
+            }
+        }
     }
 
     private void extractStorageAndPersist(MenuInstanceImpl inst) {

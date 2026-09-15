@@ -49,6 +49,23 @@ public interface MenuHandler<C> {
     default void persistStorage(C context, String sectionId, ItemStack[] contents) {}
 
     /**
+     * Identity of the mutable store this menu's storage sections read and write, or
+     * {@code null} (the default) for menus with no storage or none that another viewer
+     * can reach.
+     *
+     * <p>Storage is copied into a per-viewer {@link org.bukkit.inventory.Inventory} on
+     * open and written back wholesale on close, so two live menus over one backing store
+     * cannot both be correct: whichever closes last overwrites the store with its own
+     * copy, resurrecting whatever the other viewer removed. Handlers whose store is
+     * reachable by more than one viewer return that store here, and the dispatcher
+     * persists and closes the earlier viewer's menu before opening the new one.
+     *
+     * <p>Compared by identity, so return the shared object itself — not a copy, a
+     * snapshot, or an id that merely equals another.
+     */
+    default Object sharedStorageKey(C context) { return null; }
+
+    /**
      * Placeholders for one rendered item. For paginated-list templates,
      * {@code itemIndex} is the page-relative index; for other sections it is -1.
      */
