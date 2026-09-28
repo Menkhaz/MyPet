@@ -33,6 +33,7 @@ import org.bukkit.entity.Mob;
 import de.Keyle.MyPet.api.skill.skills.Behavior;
 import de.Keyle.MyPet.entity.ai.PetGoalKey;
 import de.Keyle.MyPet.entity.ai.PetGoalWorlds;
+import de.Keyle.MyPet.entity.visual.PetVanillaAttackAnimation;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.*;
@@ -344,6 +345,7 @@ public class PetMeleeAttackGoal implements Goal<Mob> {
         // Health-drop check approximates vanilla's "only on a successful hit"
         // guard (skips canceled events and i-frames).
         if (target.getHealth() < healthBefore) {
+            PetVanillaAttackAnimation.play(mob);
             pet.onMeleeHitLanded(target);
         }
     }
